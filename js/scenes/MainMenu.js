@@ -11,7 +11,7 @@ export default class MainMenu extends Phaser.Scene {
   preload() {
     // 🎨 Assets
     this.load.image("bg", "assets/images/background.png");
-    this.load.image("titleImage", "assets/images/Title.png");
+    this.load.image("titleImage", "assets/images/TItle.png");
 
     // 🎵 Sounds
     this.load.audio("bgm", "assets/sound/tanzil-old-school-music-339335.mp3");

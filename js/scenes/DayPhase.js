@@ -1,4 +1,5 @@
 import GameManager from "../managers/GameManager.js";
+import GameUtils from "../managers/GameUtils.js";
 import PhaseManager from "../managers/PhaseManager.js";
 
 export default class DayPhase extends Phaser.Scene {
@@ -6,10 +7,9 @@ export default class DayPhase extends Phaser.Scene {
     super("DayPhase");
     this.votes = [];
     this.currentVoter = 0;
+    this.voteHistory = [];
+    this.isVotingActive = false;
     this.buttons = [];
-    this.voteHistory = []; // Track who voted for whom
-    this.isVotingLocked = false;
-    this.phaseState = "voting"; // voting, summary, eliminating
   }
 
   preload() {
@@ -21,82 +21,66 @@ export default class DayPhase extends Phaser.Scene {
   }
 
   create() {
-    // Guard clause for invalid game state
-    if (!GameManager.playerList || GameManager.playerList.length === 0) {
-      console.warn("No players found in DayPhase. Returning to MainMenu.");
-      this.scene.start("MainMenu");
+    // ✨ IMPROVED: Better validation
+    if (!GameManager.isValidGameState()) {
+      console.warn("Invalid game state in DayPhase");
+      GameUtils.fadeToScene(this, "MainMenu");
       return;
     }
 
-    // 🖼️ Background
+    this.setupUI();
+    if (!this.initializeVoting()) {
+      return; // Stop if initialization fails
+    }
+  }
+
+  setupUI() {
+    // Background
     this.add
       .image(this.scale.width / 2, this.scale.height / 2, "bg")
       .setDisplaySize(this.scale.width, this.scale.height)
       .setAlpha(0.3);
 
-    // 📅 Phase Header
-    this.phaseHeader = this.add
-      .text(this.scale.width / 2, 50, "☀️ DAY PHASE - VOTING TIME", {
+    // ✨ IMPROVED: Use GameUtils for consistent text
+    this.phaseHeader = GameUtils.centerText(
+      this,
+      "☀️ DAY PHASE - VOTING TIME",
+      50,
+      {
         fontSize: "32px",
-        fontFamily: "Poppins",
         color: "#ffcc00",
         stroke: "#000000",
         strokeThickness: 2,
-      })
-      .setOrigin(0.5);
+      }
+    );
 
-    // 📊 Progress indicator
-    this.progressText = this.add
-      .text(this.scale.width / 2, 90, "", {
-        fontSize: "18px",
-        fontFamily: "Poppins",
-        color: "#cccccc",
-      })
-      .setOrigin(0.5);
+    this.instructionText = GameUtils.centerText(this, "", 140, {
+      fontSize: "28px",
+      wordWrap: { width: 640 },
+      align: "center",
+    });
 
-    // 📝 Instructions Text
-    this.instructionText = this.add
-      .text(this.scale.width / 2, 140, "", {
-        fontSize: "28px",
-        fontFamily: "Poppins",
-        color: "#ffffff",
-        wordWrap: { width: 640 },
-        align: "center",
-      })
-      .setOrigin(0.5);
-
-    // 🗳️ Vote tracking display
-    this.voteTrackingText = this.add
-      .text(50, 200, "", {
-        fontSize: "20px",
-        fontFamily: "Poppins",
-        color: "#aaaaaa",
-        wordWrap: { width: 300 },
-      })
-      .setVisible(false);
-
-    // Initialize voting data
-    this.initializeVoting();
-    this.startVotingPhase();
+    this.progressText = GameUtils.centerText(this, "", 90, {
+      fontSize: "18px",
+      color: "#cccccc",
+    });
   }
 
   initializeVoting() {
-    // Filter alive players and store their original indices
-    this.alivePlayers = GameManager.playerList
-      .map((player, index) => ({ ...player, originalIndex: index }))
-      .filter((p) => p.isAlive);
+    // ✨ IMPROVED: Use GameManager helper
+    this.alivePlayers = GameManager.getAlivePlayers();
 
-    // Initialize vote arrays
-    this.votes = new Array(GameManager.playerList.length).fill(0);
-    this.voteHistory = [];
-    this.currentVoter = 0;
-
-    // Check if there are enough players to vote
     if (this.alivePlayers.length < 2) {
       this.handleInsufficientPlayers();
       return false;
     }
 
+    this.votes = new Array(GameManager.playerList.length).fill(0);
+    this.voteHistory = [];
+    this.currentVoter = 0;
+    this.isVotingActive = true;
+
+    this.startVoting();
     return true;
   }
 
@@ -105,134 +89,93 @@ export default class DayPhase extends Phaser.Scene {
       "⚠️ Not enough players alive to hold a vote!\nProceeding to night phase..."
     );
     this.time.delayedCall(2000, () => {
-      this.scene.start("NightPhase");
+      GameUtils.fadeToScene(this, "NightPhase");
     });
   }
 
-  startVotingPhase() {
-    this.phaseState = "voting";
-    this.updateProgress();
-    this.askNextVoter();
-  }
-
-  updateProgress() {
-    if (this.phaseState === "voting") {
-      this.progressText.setText(
-        `Voter ${this.currentVoter + 1} of ${this.alivePlayers.length}`
-      );
-    } else {
-      this.progressText.setText("Tallying votes...");
-    }
-  }
-
-  askNextVoter() {
+  startVoting() {
     if (this.currentVoter >= this.alivePlayers.length) {
       this.resolveVote();
       return;
     }
 
-    this.isVotingLocked = false;
     const voter = this.alivePlayers[this.currentVoter];
-
     this.instructionText.setText(
       `🗳️ ${voter.name}, choose someone to eliminate:\n\n` +
         `(${this.currentVoter + 1}/${this.alivePlayers.length} votes cast)`
     );
 
-    this.showVoteButtons(voter);
-    this.updateVoteTracking();
+    this.updateProgress();
+    this.showVoteButtons();
   }
 
-  showVoteButtons(voter) {
-    this.cleanupButtons();
+  updateProgress() {
+    this.progressText.setText(
+      `Voter ${this.currentVoter + 1} of ${this.alivePlayers.length}`
+    );
+  }
+
+  showVoteButtons() {
+    this.clearButtons();
+
+    const voter = this.alivePlayers[this.currentVoter];
+    const targets = this.alivePlayers.filter((p) => p.name !== voter.name);
 
     let yPos = 300;
-    const buttonSpacing = 60;
 
-    // Create voting buttons for all alive players except the voter
-    this.alivePlayers.forEach((candidate) => {
-      if (candidate.originalIndex === voter.originalIndex) return; // Skip self-vote
+    targets.forEach((target) => {
+      const originalIndex = GameManager.playerList.findIndex(
+        (p) => p.name === target.name
+      );
 
-      const btn = this.add
-        .text(this.scale.width / 2, yPos, `🔘 ${candidate.name}`, {
+      // ✨ IMPROVED: Use GameUtils for consistent buttons
+      const button = GameUtils.createButton(
+        this,
+        this.scale.width / 2,
+        yPos,
+        `🔘 ${target.name}`,
+        () => this.castVote(originalIndex),
+        {
           fontSize: "24px",
-          fontFamily: "Poppins",
-          color: "#ffffff",
           backgroundColor: "#444444",
-          padding: { x: 25, y: 12 },
-        })
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true });
-
-      // Hover effects
-      btn.on("pointerover", () => {
-        if (!this.isVotingLocked) {
-          btn.setStyle({ backgroundColor: "#666666", color: "#ffff00" });
+          hoverColor: "#666666",
         }
-      });
+      );
 
-      btn.on("pointerout", () => {
-        if (!this.isVotingLocked) {
-          btn.setStyle({ backgroundColor: "#444444", color: "#ffffff" });
-        }
-      });
-
-      // Vote handling
-      btn.on("pointerdown", () => {
-        if (this.isVotingLocked) return;
-
-        this.castVote(voter, candidate, btn);
-      });
-
-      this.buttons.push(btn);
-      yPos += buttonSpacing;
+      this.buttons.push(button);
+      yPos += 60;
     });
 
-    // Add abstain option
-    const abstainBtn = this.add
-      .text(this.scale.width / 2, yPos + 20, "🚫 Abstain", {
+    // Abstain button
+    const abstainBtn = GameUtils.createButton(
+      this,
+      this.scale.width / 2,
+      yPos + 20,
+      "🚫 Abstain",
+      () => this.castVote(-1),
+      {
         fontSize: "20px",
-        fontFamily: "Poppins",
-        color: "#888888",
         backgroundColor: "#333333",
-        padding: { x: 20, y: 8 },
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    abstainBtn.on("pointerover", () => {
-      if (!this.isVotingLocked) {
-        abstainBtn.setStyle({ backgroundColor: "#555555" });
+        hoverColor: "#555555",
       }
-    });
-
-    abstainBtn.on("pointerout", () => {
-      if (!this.isVotingLocked) {
-        abstainBtn.setStyle({ backgroundColor: "#333333" });
-      }
-    });
-
-    abstainBtn.on("pointerdown", () => {
-      if (this.isVotingLocked) return;
-      this.castVote(voter, null, abstainBtn);
-    });
+    );
 
     this.buttons.push(abstainBtn);
   }
 
-  castVote(voter, candidate, button) {
-    this.isVotingLocked = true;
+  castVote(targetIndex) {
+    if (!this.isVotingActive) return;
 
-    // Visual feedback
-    button.setStyle({ backgroundColor: "#00aa00", color: "#ffffff" });
+    const voter = this.alivePlayers[this.currentVoter];
 
-    // Record the vote
-    if (candidate) {
-      this.votes[candidate.originalIndex]++;
+    // Record vote
+    if (targetIndex >= 0) {
+      this.votes[targetIndex]++;
+      const target = GameManager.playerList[targetIndex];
       this.voteHistory.push({
         voter: voter.name,
-        target: candidate.name,
-        targetIndex: candidate.originalIndex,
+        target: target.name,
+        targetIndex: targetIndex,
       });
     } else {
       this.voteHistory.push({
@@ -242,209 +185,108 @@ export default class DayPhase extends Phaser.Scene {
       });
     }
 
-    // Optional: Play vote sound
-    // if (this.sound.get("vote_sound")) {
-    //   this.sound.play("vote_sound", { volume: 0.3 });
-    // }
+    // ✨ IMPROVED: Safe sound playing
+    GameUtils.playSound(this, "startBell", 0.3);
 
-    // Move to next voter after brief delay
-    this.time.delayedCall(800, () => {
-      this.currentVoter++;
-      this.askNextVoter();
+    this.currentVoter++;
+    this.time.delayedCall(500, () => {
+      this.startVoting();
     });
-  }
-
-  updateVoteTracking() {
-    if (this.voteHistory.length === 0) {
-      this.voteTrackingText.setVisible(false);
-      return;
-    }
-
-    let trackingText = "📋 Votes Cast:\n";
-    this.voteHistory.forEach((vote, index) => {
-      trackingText += `${index + 1}. ${vote.voter} → ${vote.target}\n`;
-    });
-
-    this.voteTrackingText.setText(trackingText).setVisible(true);
   }
 
   resolveVote() {
-    this.phaseState = "summary";
-    this.cleanupButtons();
-    this.updateProgress();
+    this.isVotingActive = false;
+    this.clearButtons();
 
-    // Find players with maximum votes
     const maxVotes = Math.max(...this.votes);
-    const eliminatedCandidates = [];
 
-    this.votes.forEach((voteCount, index) => {
-      if (voteCount === maxVotes && voteCount > 0) {
-        const player = GameManager.playerList[index];
-        if (player && player.isAlive) {
-          eliminatedCandidates.push({ player, index, voteCount });
-        }
-      }
-    });
-
-    this.handleEliminationResult(eliminatedCandidates, maxVotes);
-  }
-
-  handleEliminationResult(eliminatedCandidates, maxVotes) {
-    let summary = "📋 VOTING RESULTS\n\n";
-
-    // Show vote counts for all players who received votes
-    const playersWithVotes = [];
-    this.votes.forEach((voteCount, index) => {
-      if (voteCount > 0) {
-        const player = GameManager.playerList[index];
-        if (player) {
-          playersWithVotes.push({ name: player.name, votes: voteCount });
-        }
-      }
-    });
-
-    // Sort by vote count (descending)
-    playersWithVotes.sort((a, b) => b.votes - a.votes);
-
-    playersWithVotes.forEach(({ name, votes }) => {
-      summary += `🗳️ ${name}: ${votes} vote${votes !== 1 ? "s" : ""}\n`;
-    });
-
-    // Handle elimination logic
-    if (eliminatedCandidates.length === 0 || maxVotes === 0) {
-      summary += "\n⚖️ No elimination - no votes cast or tie at zero votes";
-      GameManager.eliminatedPlayerIndex = -1;
-    } else if (eliminatedCandidates.length === 1) {
-      const eliminated = eliminatedCandidates[0];
-      summary += `\n❌ ELIMINATED: ${eliminated.player.name}`;
-      GameManager.eliminatedPlayerIndex = eliminated.index;
-    } else {
-      // Handle ties - could implement tiebreaker or random selection
-      summary += `\n⚖️ TIE VOTE - Multiple players tied with ${maxVotes} votes`;
-      // For now, eliminate the first tied player (could be randomized)
-      const eliminated = eliminatedCandidates[0];
-      summary += `\n🎲 Random elimination: ${eliminated.player.name}`;
-      GameManager.eliminatedPlayerIndex = eliminated.index;
+    if (maxVotes === 0) {
+      this.showResults("⚖️ No elimination - no votes cast");
+      return;
     }
 
-    this.displayVoteSummary(summary);
-  }
-
-  displayVoteSummary(summary) {
-    // Clear previous content
-    this.instructionText.setText("");
-    this.voteTrackingText.setVisible(false);
-
-    // Create summary display
-    if (this.voteSummaryText) this.voteSummaryText.destroy();
-    this.voteSummaryText = this.add
-      .text(this.scale.width / 2, 300, summary, {
-        fontSize: "22px",
-        fontFamily: "Poppins",
-        color: "#ffffff",
-        align: "center",
-        wordWrap: { width: 600 },
-      })
-      .setOrigin(0.5);
-
-    // Show detailed vote history
-    this.showDetailedVoteHistory();
-
-    // Create continue button
-    this.createContinueButton();
-  }
-
-  showDetailedVoteHistory() {
-    if (this.voteHistory.length === 0) return;
-
-    let historyText = "\n📝 Detailed Vote History:\n";
-    this.voteHistory.forEach((vote, index) => {
-      historyText += `${index + 1}. ${vote.voter} voted for ${vote.target}\n`;
-    });
-
-    if (this.voteHistoryText) this.voteHistoryText.destroy();
-    this.voteHistoryText = this.add
-      .text(this.scale.width / 2, 500, historyText, {
-        fontSize: "16px",
-        fontFamily: "Poppins",
-        color: "#cccccc",
-        align: "center",
-        wordWrap: { width: 500 },
-      })
-      .setOrigin(0.5);
-  }
-
-  createContinueButton() {
-    if (this.continueBtn) this.continueBtn.destroy();
-
-    this.continueBtn = this.add
-      .text(
-        this.scale.width / 2,
-        this.scale.height - 100,
-        "Continue to Results ▶️",
-        {
-          fontSize: "28px",
-          color: "#ffffff",
-          backgroundColor: "#00aa44",
-          fontFamily: "Poppins",
-          padding: { x: 30, y: 15 },
-        }
-      )
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    this.continueBtn.on("pointerover", () => {
-      this.continueBtn.setStyle({ backgroundColor: "#00cc55" });
-    });
-
-    this.continueBtn.on("pointerout", () => {
-      this.continueBtn.setStyle({ backgroundColor: "#00aa44" });
-    });
-
-    this.continueBtn.on("pointerdown", () => {
-      this.continueBtn.disableInteractive().setAlpha(0.6);
-      this.finalizeElimination();
-    });
-  }
-
-  finalizeElimination() {
-    this.phaseState = "eliminating";
-
-    // Apply elimination if there is one
-    if (GameManager.eliminatedPlayerIndex >= 0) {
-      const eliminatedPlayer =
-        GameManager.playerList[GameManager.eliminatedPlayerIndex];
-      if (eliminatedPlayer && eliminatedPlayer.isAlive) {
-        eliminatedPlayer.isAlive = false;
-
-        // Optional: Play elimination sound
-        // if (this.sound.get("elimination_sound")) {
-        //   this.sound.play("elimination_sound", { volume: 0.5 });
-        // }
+    // ✨ IMPROVED: Cleaner elimination logic
+    const eliminatedCandidates = [];
+    this.votes.forEach((voteCount, index) => {
+      if (voteCount === maxVotes && GameManager.playerList[index].isAlive) {
+        eliminatedCandidates.push({
+          player: GameManager.playerList[index],
+          index,
+        });
       }
+    });
+
+    let resultMessage;
+    let eliminatedPlayerIndex = -1; // Default to no elimination
+
+    if (eliminatedCandidates.length === 1) {
+      const eliminated = eliminatedCandidates[0];
+      eliminatedPlayerIndex = eliminated.index;
+      resultMessage = `❌ ELIMINATED: ${eliminated.player.name} (${maxVotes} votes)`;
+    } else {
+      // Handle tie
+      const eliminated =
+        eliminatedCandidates[
+          Math.floor(Math.random() * eliminatedCandidates.length)
+        ];
+      eliminatedPlayerIndex = eliminated.index;
+      resultMessage = `⚖️ Tie broken: ${eliminated.player.name} eliminated`;
+    }
+
+    this.showResults(resultMessage, eliminatedPlayerIndex);
+  }
+
+  showResults(message, eliminatedPlayerIndex = -1) {
+    this.instructionText.setText(message);
+
+    // ✨ IMPROVED: Use GameUtils for continue button
+    const continueBtn = GameUtils.createButton(
+      this,
+      this.scale.width / 2,
+      this.scale.height - 100,
+      "Continue ▶️",
+      () => this.proceedToNext(eliminatedPlayerIndex),
+      {
+        backgroundColor: "#00aa44",
+        hoverColor: "#00cc55",
+      }
+    );
+
+    this.buttons.push(continueBtn);
+  }
+
+  proceedToNext(eliminatedPlayerIndex) {
+    // Apply elimination
+    if (eliminatedPlayerIndex >= 0) {
+      GameManager.eliminatedPlayerIndex = eliminatedPlayerIndex;
+      const eliminatedPlayer = GameManager.playerList[eliminatedPlayerIndex];
+      if (eliminatedPlayer) {
+        eliminatedPlayer.isAlive = false;
+      }
+    } else {
+      GameManager.eliminatedPlayerIndex = -1; // No one was eliminated
     }
 
     // Check for win conditions
     const winResult = PhaseManager.checkWin();
     if (winResult && winResult !== "") {
       GameManager.winMessage = winResult;
-      this.scene.start("GameOver");
+      GameUtils.fadeToScene(this, "GameOver");
     } else {
-      // Continue to night phase
-      this.time.delayedCall(1000, () => {
-        this.scene.start("NightPhase");
-      });
+      GameUtils.fadeToScene(this, "NightPhase");
     }
   }
 
-  cleanupButtons() {
-    this.buttons.forEach((btn) => btn.destroy());
-    this.buttons = [];
+  clearButtons() {
+    if (this.buttons) {
+      this.buttons.forEach((btn) => btn.destroy());
+      this.buttons = [];
+    }
   }
 
-  // Cleanup when scene ends
+  // ✨ IMPROVED: Better cleanup
   destroy() {
-    this.cleanupButtons();
+    this.clearButtons();
     super.destroy();
   }
 }

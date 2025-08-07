@@ -1,49 +1,41 @@
 import GameManager from "../managers/GameManager.js";
-import PhaseManager from "../managers/PhaseManager.js";
 
 export default class NightPhase extends Phaser.Scene {
   constructor() {
     super("NightPhase");
-    this.currentRole = "";
-    this.currentActor = null;
-    this.step = 0;
-    this.buttons = [];
+    this.currentRoleIndex = 0;
+    this.nightRoles = [];
     this.nightActions = [];
-    this.isProcessingAction = false;
-    this.phaseState = "transition"; // transition, roleAction, results
+    this.buttons = [];
+    this.currentState = "starting"; // starting, pass_device, show_role, take_action, results
   }
 
   preload() {
     this.load.image("bg", "assets/images/background.png");
-
-    // Optional: Load role-specific images or sounds
-    // this.load.image("night_overlay", "assets/images/night_overlay.png");
-    // this.load.audio("night_ambient", "assets/audio/night.mp3");
   }
 
   create() {
-    // Guard clause for invalid game state
     if (!GameManager.playerList || GameManager.playerList.length === 0) {
-      console.warn("No players found in NightPhase. Returning to MainMenu.");
       this.scene.start("MainMenu");
       return;
     }
 
     this.setupUI();
-    this.initializeNightPhase();
+    this.findNightRoles();
+    this.startNightPhase();
   }
 
   setupUI() {
-    // 🖼️ Dark night background
+    // Background
     this.add
       .image(this.scale.width / 2, this.scale.height / 2, "bg")
       .setDisplaySize(this.scale.width, this.scale.height)
-      .setAlpha(0.2);
+      .setAlpha(0.3);
 
-    // 🌙 Phase header
-    this.phaseHeader = this.add
-      .text(this.scale.width / 2, 50, "🌙 NIGHT PHASE", {
-        fontSize: "36px",
+    // Title
+    this.add
+      .text(this.scale.width / 2, 100, "🌙 NIGHT PHASE", {
+        fontSize: "32px",
         fontFamily: "Poppins",
         color: "#6666ff",
         stroke: "#000000",
@@ -51,29 +43,29 @@ export default class NightPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // 📊 Progress indicator
+    // Progress indicator
     this.progressText = this.add
-      .text(this.scale.width / 2, 90, "", {
+      .text(this.scale.width / 2, 150, "", {
         fontSize: "18px",
         fontFamily: "Poppins",
         color: "#cccccc",
       })
       .setOrigin(0.5);
 
-    // 📝 Main instruction text
-    this.instructionText = this.add
-      .text(this.scale.width / 2, 150, "", {
+    // Main text (larger, more prominent)
+    this.mainText = this.add
+      .text(this.scale.width / 2, 300, "", {
         fontSize: "28px",
         fontFamily: "Poppins",
         color: "#ffffff",
-        wordWrap: { width: 600 },
+        wordWrap: { width: 550 },
         align: "center",
       })
       .setOrigin(0.5);
 
-    // 🎭 Role-specific information
-    this.roleInfoText = this.add
-      .text(this.scale.width / 2, 220, "", {
+    // Sub text (instructions)
+    this.subText = this.add
+      .text(this.scale.width / 2, 400, "", {
         fontSize: "22px",
         fontFamily: "Poppins",
         color: "#ffcc66",
@@ -82,197 +74,150 @@ export default class NightPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // 📋 Action summary (for results)
-    this.actionSummaryText = this.add
-      .text(this.scale.width / 2, 300, "", {
-        fontSize: "20px",
-        fontFamily: "Poppins",
-        color: "#aaaaaa",
-        wordWrap: { width: 550 },
-        align: "center",
-      })
-      .setOrigin(0.5)
-      .setVisible(false);
-
-    // ▶️ Action button
-    this.actionButton = this.add
-      .text(this.scale.width / 2, this.scale.height - 100, "Next ▶️", {
-        fontSize: "28px",
+    // Single continue button
+    this.continueBtn = this.add
+      .text(this.scale.width / 2, this.scale.height - 120, "Continue", {
+        fontSize: "26px",
         fontFamily: "Poppins",
         color: "#ffffff",
-        backgroundColor: "#333333",
-        padding: { x: 25, y: 12 },
+        backgroundColor: "#4444ff",
+        padding: { x: 30, y: 15 },
       })
       .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-      .setVisible(false);
+      .setInteractive({ useHandCursor: true });
 
     // Button hover effects
-    this.actionButton.on("pointerover", () => {
-      if (this.actionButton.active) {
-        this.actionButton.setStyle({ backgroundColor: "#555555" });
-      }
+    this.continueBtn.on("pointerover", () => {
+      this.continueBtn.setStyle({ backgroundColor: "#6666ff" });
     });
 
-    this.actionButton.on("pointerout", () => {
-      if (this.actionButton.active) {
-        this.actionButton.setStyle({ backgroundColor: "#333333" });
+    this.continueBtn.on("pointerout", () => {
+      this.continueBtn.setStyle({ backgroundColor: "#4444ff" });
+    });
+  }
+
+  findNightRoles() {
+    this.nightRoles = [];
+
+    GameManager.playerList.forEach((player, index) => {
+      if (!player.isAlive) return;
+
+      if (player.role === "Saboteur") {
+        this.nightRoles.push({
+          player: player,
+          playerIndex: index,
+          role: "Saboteur",
+          emoji: "💀",
+          description: "Choose someone to eliminate",
+        });
+      } else if (player.role === "Medic") {
+        this.nightRoles.push({
+          player: player,
+          playerIndex: index,
+          role: "Medic",
+          emoji: "🛡️",
+          description: "Choose someone to protect (or skip)",
+        });
+      } else if (player.role === "Investigator") {
+        this.nightRoles.push({
+          player: player,
+          playerIndex: index,
+          role: "Investigator",
+          emoji: "🔍",
+          description: "Choose someone to investigate",
+        });
       }
     });
   }
 
-  initializeNightPhase() {
-    // Define role processing order and their abilities
-    this.roleDefinitions = {
-      Saboteur: {
-        order: 1,
-        actionText: "Choose someone to eliminate",
-        emoji: "💀",
-        color: "#ff4444",
-        canTargetSelf: false,
-        description: "Select a player to eliminate during the night",
-      },
-      Medic: {
-        order: 2,
-        actionText: "Choose someone to protect",
-        emoji: "🛡️",
-        color: "#44ff44",
-        canTargetSelf: true,
-        description: "Protect a player from elimination (including yourself)",
-      },
-      Investigator: {
-        order: 3,
-        actionText: "Choose someone to investigate",
-        emoji: "🔍",
-        color: "#4444ff",
-        canTargetSelf: false,
-        description: "Learn if a player is the Saboteur",
-      },
-    };
-
-    // Get alive players with night roles, sorted by action order
-    this.rolesToProcess = Object.keys(this.roleDefinitions)
-      .sort(
-        (a, b) => this.roleDefinitions[a].order - this.roleDefinitions[b].order
-      )
-      .filter((role) => {
-        return GameManager.playerList.some((p) => p.role === role && p.isAlive);
-      });
-
+  startNightPhase() {
+    this.currentRoleIndex = 0;
     this.nightActions = [];
-    this.step = 0;
-    this.processNextRole();
-  }
 
-  updateProgress() {
-    if (this.rolesToProcess.length === 0) {
-      this.progressText.setText("Processing night results...");
-    } else {
-      this.progressText.setText(
-        `Role ${this.step + 1} of ${this.rolesToProcess.length}: ${
-          this.currentRole || "Starting..."
-        }`
-      );
-    }
-  }
-
-  processNextRole() {
-    this.phaseState = "transition";
-    this.cleanupButtons();
-    this.actionButton.removeAllListeners();
-    this.actionSummaryText.setVisible(false);
-
-    if (this.step >= this.rolesToProcess.length) {
-      this.resolveNightActions();
+    if (this.nightRoles.length === 0) {
+      this.skipToMorning();
       return;
     }
 
-    this.currentRole = this.rolesToProcess[this.step];
-    this.currentActor = GameManager.playerList.find(
-      (p) => p.role === this.currentRole && p.isAlive
-    );
+    this.showPassDevice();
+  }
 
-    if (!this.currentActor) {
-      // Role player is dead, skip to next
-      this.step++;
-      this.processNextRole();
-      return;
-    }
+  showPassDevice() {
+    this.currentState = "pass_device";
+    this.clearButtons();
 
+    const currentRole = this.nightRoles[this.currentRoleIndex];
+
+    // ✅ SIMPLE: Clear, direct instructions
     this.updateProgress();
-    this.showPassDevicePrompt();
-  }
-
-  showPassDevicePrompt() {
-    const roleInfo = this.roleDefinitions[this.currentRole];
-
-    this.instructionText.setText(
-      `📱 Pass the device to:\n${this.currentActor.name}\n\n` +
-        `${roleInfo.emoji} ${this.currentRole} Phase`
+    this.mainText.setText(
+      `📱 Pass the device to:\n\n${currentRole.player.name}`
+    );
+    this.subText.setText(
+      `${currentRole.player.name}: Tap when you have the device\n\n🔒 Other players: Please look away now`
     );
 
-    this.roleInfoText.setText(
-      `Your ability: ${roleInfo.description}\n\n` +
-        "Tap when ready to use your ability"
-    );
+    this.continueBtn.setText("I Have The Device");
 
-    this.actionButton
-      .setText("I'm Ready 👁️")
-      .setStyle({
-        backgroundColor: roleInfo.color,
-        color: "#ffffff",
-      })
-      .setVisible(true)
-      .setInteractive();
-
-    this.actionButton.once("pointerdown", () => {
-      this.showRoleAction();
+    this.continueBtn.removeAllListeners("pointerdown");
+    this.continueBtn.once("pointerdown", () => {
+      this.showPlayerRole();
     });
   }
 
-  showRoleAction() {
-    this.phaseState = "roleAction";
-    this.isProcessingAction = false;
-    this.cleanupButtons();
-    this.actionButton.removeAllListeners().setVisible(false);
+  showPlayerRole() {
+    this.currentState = "show_role";
 
-    const roleInfo = this.roleDefinitions[this.currentRole];
+    const currentRole = this.nightRoles[this.currentRoleIndex];
 
-    this.instructionText.setText(
-      `${roleInfo.emoji} ${this.currentActor.name}\n\n${roleInfo.actionText}:`
+    // ✅ SIMPLE: Show role immediately, no extra steps
+    this.mainText.setText(
+      `${currentRole.emoji} You are the ${currentRole.role}!`
+    );
+    this.subText.setText(
+      `${currentRole.description}\n\nTap to see your options`
     );
 
-    this.roleInfoText.setText("");
+    this.continueBtn.setText("Show My Options");
 
-    this.createTargetButtons(roleInfo);
+    this.continueBtn.removeAllListeners("pointerdown");
+    this.continueBtn.once("pointerdown", () => {
+      this.showActionOptions();
+    });
+  }
+
+  showActionOptions() {
+    this.currentState = "take_action";
+
+    const currentRole = this.nightRoles[this.currentRoleIndex];
+
+    this.mainText.setText(`${currentRole.emoji} ${currentRole.description}`);
+    this.subText.setText("Choose your target:");
+
+    this.continueBtn.setVisible(false);
+    this.createTargetButtons(currentRole);
   }
 
   createTargetButtons(roleInfo) {
-    const availableTargets = GameManager.playerList.filter((player, index) => {
-      // Always exclude dead players
+    const targets = GameManager.playerList.filter((player, index) => {
       if (!player.isAlive) return false;
 
-      // Check if role can target self
-      if (!roleInfo.canTargetSelf && player.name === this.currentActor.name) {
+      // Saboteur and Investigator can't target themselves
+      if (
+        (roleInfo.role === "Saboteur" || roleInfo.role === "Investigator") &&
+        index === roleInfo.playerIndex
+      ) {
         return false;
       }
 
       return true;
     });
 
-    if (availableTargets.length === 0) {
-      this.handleNoValidTargets();
-      return;
-    }
+    let yPos = 500;
+    const buttonHeight = 50;
 
-    const buttonStartY = 320;
-    const buttonSpacing = 55;
-
-    availableTargets.forEach((player, buttonIndex) => {
-      const originalIndex = GameManager.playerList.findIndex(
-        (p) => p === player
-      );
-      const yPos = buttonStartY + buttonIndex * buttonSpacing;
+    targets.forEach((player) => {
+      const originalIndex = GameManager.playerList.indexOf(player);
 
       const btn = this.add
         .text(this.scale.width / 2, yPos, `${roleInfo.emoji} ${player.name}`, {
@@ -285,323 +230,268 @@ export default class NightPhase extends Phaser.Scene {
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true });
 
-      // Hover effects
+      // Simple hover effect
       btn.on("pointerover", () => {
-        if (!this.isProcessingAction) {
-          btn.setStyle({
-            backgroundColor: roleInfo.color,
-            color: "#ffffff",
-          });
-        }
+        btn.setStyle({ backgroundColor: "#666666" });
       });
 
       btn.on("pointerout", () => {
-        if (!this.isProcessingAction) {
-          btn.setStyle({
-            backgroundColor: "#444444",
-            color: "#ffffff",
-          });
-        }
+        btn.setStyle({ backgroundColor: "#444444" });
       });
 
       btn.on("pointerdown", () => {
-        if (!this.isProcessingAction) {
-          this.handleRoleAction(originalIndex, player, btn, roleInfo);
-        }
+        this.selectTarget(roleInfo, player, originalIndex);
       });
 
       this.buttons.push(btn);
+      yPos += buttonHeight;
     });
 
-    // Add skip/no action button for certain roles
-    if (this.currentRole === "Medic") {
-      this.addSkipButton(
-        roleInfo,
-        buttonStartY + availableTargets.length * buttonSpacing + 20
-      );
+    // Add skip option for Medic only
+    if (roleInfo.role === "Medic") {
+      const skipBtn = this.add
+        .text(this.scale.width / 2, yPos + 20, "🚫 Don't Protect Anyone", {
+          fontSize: "20px",
+          fontFamily: "Poppins",
+          color: "#888888",
+          backgroundColor: "#333333",
+          padding: { x: 20, y: 10 },
+        })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true });
+
+      skipBtn.on("pointerover", () => {
+        skipBtn.setStyle({ backgroundColor: "#555555" });
+      });
+
+      skipBtn.on("pointerout", () => {
+        skipBtn.setStyle({ backgroundColor: "#333333" });
+      });
+
+      skipBtn.on("pointerdown", () => {
+        this.skipAction(roleInfo);
+      });
+
+      this.buttons.push(skipBtn);
     }
   }
 
-  addSkipButton(roleInfo, yPos) {
-    const skipBtn = this.add
-      .text(this.scale.width / 2, yPos, "🚫 No Protection Tonight", {
-        fontSize: "20px",
-        fontFamily: "Poppins",
-        color: "#888888",
-        backgroundColor: "#333333",
-        padding: { x: 20, y: 10 },
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    skipBtn.on("pointerover", () => {
-      if (!this.isProcessingAction) {
-        skipBtn.setStyle({ backgroundColor: "#555555" });
-      }
-    });
-
-    skipBtn.on("pointerout", () => {
-      if (!this.isProcessingAction) {
-        skipBtn.setStyle({ backgroundColor: "#333333" });
-      }
-    });
-
-    skipBtn.on("pointerdown", () => {
-      if (!this.isProcessingAction) {
-        this.handleSkipAction(skipBtn);
-      }
-    });
-
-    this.buttons.push(skipBtn);
-  }
-
-  handleNoValidTargets() {
-    this.instructionText.setText(
-      `${
-        this.roleDefinitions[this.currentRole].emoji
-      } No valid targets available\n\n` + "Your action is skipped this turn"
-    );
-
-    this.showContinueButton("Continue ▶️");
-  }
-
-  handleRoleAction(targetIndex, targetPlayer, button, roleInfo) {
-    this.isProcessingAction = true;
-
-    // Visual feedback
-    button.setStyle({
-      backgroundColor: "#00aa00",
-      color: "#ffffff",
-    });
-
-    // Record the action
+  selectTarget(roleInfo, targetPlayer, targetIndex) {
+    // Record action
     const action = {
-      role: this.currentRole,
-      actor: this.currentActor.name,
-      actorIndex: GameManager.playerList.findIndex(
-        (p) => p === this.currentActor
-      ),
+      role: roleInfo.role,
+      actor: roleInfo.player.name,
+      actorIndex: roleInfo.playerIndex,
+      target: targetPlayer.name,
       targetIndex: targetIndex,
-      targetName: targetPlayer.name,
     };
 
     this.nightActions.push(action);
 
-    // Execute immediate role effects or show results
-    this.executeRoleAction(action, targetPlayer);
+    // Show immediate feedback for Investigator
+    let message = "";
+    if (roleInfo.role === "Investigator") {
+      const isSaboteur = targetPlayer.role === "Saboteur";
+      message = `🔍 ${targetPlayer.name} is ${
+        isSaboteur ? "SUSPICIOUS! 🚨" : "INNOCENT ✅"
+      }`;
+    } else {
+      message = `✅ Action confirmed!\nTarget: ${targetPlayer.name}`;
+    }
+
+    this.showActionComplete(message);
   }
 
-  handleSkipAction(button) {
-    this.isProcessingAction = true;
-
-    button.setStyle({ backgroundColor: "#666666" });
-
+  skipAction(roleInfo) {
     const action = {
-      role: this.currentRole,
-      actor: this.currentActor.name,
-      actorIndex: GameManager.playerList.findIndex(
-        (p) => p === this.currentActor
-      ),
-      targetIndex: -1,
-      targetName: "No Target",
+      role: roleInfo.role,
+      actor: roleInfo.player.name,
+      actorIndex: roleInfo.playerIndex,
       skipped: true,
     };
 
     this.nightActions.push(action);
-    this.showActionResult(
-      `${this.currentActor.name} chose not to use their ability tonight.`
+    this.showActionComplete("✅ You chose not to act");
+  }
+
+  showActionComplete(message) {
+    this.clearButtons();
+
+    this.mainText.setText(message);
+    this.subText.setText(
+      "Your turn is complete.\nTap to continue to next player"
     );
-  }
 
-  executeRoleAction(action, targetPlayer) {
-    let resultMessage = "";
+    this.continueBtn.setVisible(true);
+    this.continueBtn.setText("Next Player");
 
-    switch (action.role) {
-      case "Saboteur":
-        GameManager.lastSabotageIndex = action.targetIndex;
-        resultMessage = `You have chosen to eliminate ${targetPlayer.name}.`;
-        break;
-
-      case "Medic":
-        // Clear previous protections first
-        GameManager.playerList.forEach((p) => (p.isProtected = false));
-        targetPlayer.isProtected = true;
-        resultMessage = `You are protecting ${targetPlayer.name} tonight.`;
-        break;
-
-      case "Investigator":
-        const isSaboteur = targetPlayer.role === "Saboteur";
-        resultMessage = `🔍 Investigation Result:\n${targetPlayer.name} is ${
-          isSaboteur ? "the SABOTEUR! 🚨" : "NOT the Saboteur ✅"
-        }`;
-        break;
-
-      default:
-        resultMessage = `Action completed for ${targetPlayer.name}.`;
-    }
-
-    this.showActionResult(resultMessage);
-  }
-
-  showActionResult(message) {
-    this.cleanupButtons();
-    this.instructionText.setText(message);
-    this.roleInfoText.setText("");
-
-    this.showContinueButton("Continue to Next Role ▶️");
-  }
-
-  showContinueButton(text) {
-    this.actionButton
-      .setText(text)
-      .setStyle({
-        backgroundColor: "#333333",
-        color: "#ffffff",
-      })
-      .setVisible(true)
-      .setInteractive();
-
-    this.actionButton.once("pointerdown", () => {
-      this.step++;
-      this.processNextRole();
+    this.continueBtn.removeAllListeners("pointerdown");
+    this.continueBtn.once("pointerdown", () => {
+      this.moveToNextPlayer();
     });
   }
 
-  resolveNightActions() {
-    this.phaseState = "results";
-    this.cleanupButtons();
-    this.updateProgress();
+  moveToNextPlayer() {
+    this.currentRoleIndex++;
 
-    // Show night summary
-    this.showNightSummary();
-
-    // Process all night actions through PhaseManager
-    PhaseManager.resolveNight();
-
-    // Check for win conditions
-    const winResult = PhaseManager.checkWin();
-    if (winResult && winResult !== "") {
-      GameManager.winMessage = winResult;
-      this.time.delayedCall(2000, () => {
-        this.scene.start("GameOver");
-      });
+    if (this.currentRoleIndex >= this.nightRoles.length) {
+      this.resolveNight();
     } else {
-      this.actionButton
-        .setText("Dawn Breaks - Continue to Day ☀️")
-        .setStyle({
-          backgroundColor: "#ffaa00",
-          color: "#ffffff",
-        })
-        .setVisible(true)
-        .setInteractive();
-
-      this.actionButton.once("pointerdown", () => {
-        this.scene.start("DayPhase");
-      });
+      // ✅ SIMPLE: Just show "device passing" screen
+      this.showDevicePassing();
     }
   }
 
-  showNightSummary() {
-    this.instructionText.setText("🌅 Night Actions Complete");
-    this.roleInfoText.setText("The night activities have concluded...");
+  showDevicePassing() {
+    this.clearButtons();
 
-    // Show summary of actions (without revealing sensitive information)
-    let summary = "📋 Night Summary:\n\n";
-    this.nightActions.forEach((action) => {
-      if (action.skipped) {
-        summary += `• ${action.role} chose not to act\n`;
-      } else if (action.role !== "Investigator") {
-        // Don't reveal investigation results
-        summary += `• ${action.role} performed their night action\n`;
+    this.mainText.setText("📱 Passing Device...");
+    this.subText.setText(
+      "🔒 Everyone look away!\n\nNext player tap when ready"
+    );
+
+    // ✅ FIX: Show button instead of auto-advance
+    this.continueBtn.setText("Ready for Next Player");
+    this.continueBtn.setVisible(true);
+
+    this.continueBtn.removeAllListeners("pointerdown");
+    this.continueBtn.once("pointerdown", () => {
+      this.showPassDevice();
+    });
+  }
+
+  resolveNight() {
+    this.currentState = "results";
+    this.clearButtons();
+
+    this.mainText.setText("🌅 Night Results");
+    this.subText.setText("Everyone can look now!\nProcessing actions...");
+
+    this.continueBtn.setVisible(false);
+
+    let eliminated = null;
+
+    // Simple resolution logic
+    const protectAction = this.nightActions.find(
+      (a) => a.role === "Medic" && !a.skipped
+    );
+    if (protectAction) {
+      GameManager.playerList[protectAction.targetIndex].isProtected = true;
+    }
+
+    const eliminateAction = this.nightActions.find(
+      (a) => a.role === "Saboteur"
+    );
+    if (eliminateAction) {
+      const target = GameManager.playerList[eliminateAction.targetIndex];
+
+      if (target.isProtected) {
+        this.subText.setText("Someone was protected from elimination!");
       } else {
-        summary += `• ${action.role} conducted an investigation\n`;
+        target.isAlive = false;
+        eliminated = target;
+        GameManager.eliminatedPlayerIndex = eliminateAction.targetIndex;
+      }
+    }
+
+    // Clear protections
+    GameManager.playerList.forEach((p) => (p.isProtected = false));
+
+    // Show results after delay
+    this.time.delayedCall(3000, () => {
+      this.showFinalResults(eliminated);
+    });
+  }
+
+  showFinalResults(eliminated) {
+    let message = "🌅 Dawn Breaks";
+    if (eliminated) {
+      message += `\n\n💀 ${eliminated.name} was eliminated during the night`;
+    } else {
+      message += `\n\n✅ Everyone survived the night`;
+    }
+
+    this.mainText.setText(message);
+    this.subText.setText("The survivors gather to discuss what happened");
+
+    this.continueBtn.setText("Begin Day Phase");
+    this.continueBtn.setVisible(true);
+
+    this.continueBtn.removeAllListeners("pointerdown");
+    this.continueBtn.once("pointerdown", () => {
+      // Check win condition
+      const alive = GameManager.playerList.filter((p) => p.isAlive);
+      const aliveSaboteurs = alive.filter((p) => p.role === "Saboteur");
+      const aliveInnocents = alive.filter((p) => p.role !== "Saboteur");
+
+      if (aliveSaboteurs.length === 0) {
+        GameManager.winMessage = "🎉 Innocents Win! Saboteur eliminated!";
+        this.scene.start("GameOver");
+      } else if (aliveSaboteurs.length >= aliveInnocents.length) {
+        GameManager.winMessage = "💀 Saboteurs Win! They control the facility!";
+        this.scene.start("GameOver");
+      } else {
+        GameManager.roundNumber++;
+        this.scene.start("DayPhase");
       }
     });
-
-    if (this.nightActions.length === 0) {
-      summary += "• No night actions were taken\n";
-    }
-
-    this.actionSummaryText.setText(summary).setVisible(true);
   }
 
-  cleanupButtons() {
+  updateProgress() {
+    if (this.nightRoles.length > 0) {
+      this.progressText.setText(
+        `Player ${this.currentRoleIndex + 1} of ${this.nightRoles.length}`
+      );
+    }
+  }
+
+  skipToMorning() {
+    this.mainText.setText("🌅 A quiet night...");
+    this.subText.setText("No special roles are active");
+
+    this.time.delayedCall(2000, () => {
+      GameManager.roundNumber++;
+      this.scene.start("DayPhase");
+    });
+  }
+
+  clearButtons() {
     this.buttons.forEach((btn) => btn.destroy());
     this.buttons = [];
   }
 
-  // Cleanup when scene ends
   destroy() {
-    this.cleanupButtons();
+    this.clearButtons();
     super.destroy();
   }
-  // Add this method to your existing NightPhase class
-
-  handleRoleAction(targetIndex, targetPlayer, button, roleInfo) {
-    this.isProcessingAction = true;
-
-    // Visual feedback
-    button.setStyle({
-      backgroundColor: "#00aa00",
-      color: "#ffffff",
-    });
-
-    // Launch question challenge for important actions
-    if (this.shouldRequireChallenge()) {
-      // Pause this scene
-      this.scene.pause();
-
-      // Launch question scene
-      this.scene.launch("QuestionChallenge", {
-        type: this.currentRole.toLowerCase(),
-        targetPlayer: targetPlayer.name,
-        returnScene: "NightPhase",
-        callback: (success) => {
-          if (success) {
-            // Proceed with action
-            this.recordSuccessfulAction(targetIndex, targetPlayer);
-          } else {
-            // Action failed
-            this.showFailedAction(targetPlayer);
-          }
-        },
-      });
-    } else {
-      // Direct action without challenge
-      this.recordSuccessfulAction(targetIndex, targetPlayer);
-    }
-  }
-
-  shouldRequireChallenge() {
-    // Implement logic for when to require challenges
-    // For example: always for Saboteur, sometimes for others
-    if (this.currentRole === "Saboteur") return true;
-    if (this.currentRole === "Investigator" && Math.random() < 0.5) return true;
-    return false;
-  }
-
-  recordSuccessfulAction(targetIndex, targetPlayer) {
-    const action = {
-      role: this.currentRole,
-      actor: this.currentActor.name,
-      actorIndex: GameManager.playerList.findIndex(
-        (p) => p === this.currentActor
-      ),
-      targetIndex: targetIndex,
-      targetName: targetPlayer.name,
-    };
-
-    this.nightActions.push(action);
-    this.executeRoleAction(action, targetPlayer);
-  }
-
-  showFailedAction(targetPlayer) {
-    this.instructionText.setText(
-      `❌ Challenge Failed!\n\nYour action on ${targetPlayer.name} was unsuccessful.`
-    );
-
-    this.roleInfoText.setText("Study harder next time!");
-
-    this.showContinueButton("Continue to Next Role ▶️");
-  }
 }
+
+/*
+✅ SIMPLIFIED FLOW:
+
+1. "Pass device to [Name]" → Clear instructions
+2. "[Name] tap when you have device" → One simple action
+3. "You are [Role]!" → Immediate reveal
+4. "Show my options" → One button to continue  
+5. Target selection → Simple buttons
+6. "Action complete" → Clear confirmation
+7. "Next player" → Move on
+8. Auto 3-second transition → No confusion
+9. Repeat for next player
+
+🚫 REMOVED CONFUSING ELEMENTS:
+- Multiple privacy screens
+- Complex state transitions  
+- Unclear "ready" states
+- Too many confirmation steps
+- Confusing color changes
+- Unclear instructions
+
+✅ CLEAR BENEFITS:
+- One button per screen (except target selection)
+- Clear progress indicator
+- Simple language
+- Obvious next steps
+- Auto-transitions where helpful
+- Consistent flow for all players
+*/

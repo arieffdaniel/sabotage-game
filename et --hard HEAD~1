@@ -1,0 +1,29 @@
+[33mcommit 8e7c1fa87dda7796003b166487493791a0507bfa[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: arieffdaniel <arieffmad8@gmail.com>
+Date:   Thu Aug 7 22:11:01 2025 +0800
+
+    fix typo title
+
+[33mcommit 66b2e0940bc1349af3961dba98b408f77bef199e[m
+Author: arieffdaniel <arieffmad8@gmail.com>
+Date:   Thu Aug 7 22:06:50 2025 +0800
+
+    Update: Enhanced MainMenu with effects and UI polish
+
+[33mcommit 71b96793437658da95ff4a3b6a4f44fc7d3211b7[m
+Author: arieffdaniel <arieffmad8@gmail.com>
+Date:   Thu Aug 7 21:52:04 2025 +0800
+
+    Fix: game mechanic
+
+[33mcommit 338e5d594548112127a525eff14af3adff265aa7[m
+Author: arieffdaniel <arieffmad8@gmail.com>
+Date:   Thu Aug 7 20:21:35 2025 +0800
+
+    Fix: Ensure all assets are included including Title.png
+
+[33mcommit 75fb2008a116e765a33fee8b4247b753dee828de[m
+Author: arieffdaniel <arieffmad8@gmail.com>
+Date:   Thu Aug 7 19:50:33 2025 +0800
+
+    Initial commit - Phaser game

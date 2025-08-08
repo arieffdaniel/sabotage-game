@@ -16,8 +16,8 @@ export default class MainMenu extends Phaser.Scene {
     // 🎵 Sounds
     this.load.audio("bgm", "assets/sound/tanzil-old-school-music-339335.mp3");
     this.load.audio("startBell", "assets/sound/school-bell-310293.mp3");
-    this.load.audio("hover", "assets/sound/hover.mp3"); // Optional hover sound
-    this.load.audio("click", "assets/sound/click.mp3"); // Optional click sound
+    this.load.audio("hover", "assets/sound/hover.mp3");
+    this.load.audio("click", "assets/sound/click.mp3");
 
     // Error handling
     this.load.on("fileerror", (key) => {
@@ -50,7 +50,7 @@ export default class MainMenu extends Phaser.Scene {
     // 🎨 Enhanced title with multiple effects
     this.createEnhancedTitle();
 
-    // 🚀 Create menu buttons with animations
+    // 🚀 Create menu buttons with animations (only 2 buttons now)
     this.createMenuButtons();
 
     // 📱 Add version info and credits
@@ -201,8 +201,8 @@ export default class MainMenu extends Phaser.Scene {
 
   createMenuButtons() {
     const { width, height } = this.cameras.main;
-    const startY = height * 0.5;
-    const spacing = 120;
+    const startY = height * 0.55;
+    const spacing = 150;
 
     const buttonConfigs = [
       {
@@ -218,20 +218,6 @@ export default class MainMenu extends Phaser.Scene {
         color: 0x44aa44,
         hoverColor: 0x66cc66,
         icon: "📚",
-      },
-      {
-        label: "⚙️ SETTINGS",
-        action: () => this.showSettings(),
-        color: 0xaa4444,
-        hoverColor: 0xcc6666,
-        icon: "⚙️",
-      },
-      {
-        label: "❌ EXIT",
-        action: () => this.exitGame(),
-        color: 0x666666,
-        hoverColor: 0x888888,
-        icon: "❌",
       },
     ];
 
@@ -503,16 +489,6 @@ export default class MainMenu extends Phaser.Scene {
     this.transitionToScene("HowToPlay");
   }
 
-  showSettings() {
-    // Implement settings scene
-    console.log("Settings - Coming Soon!");
-  }
-
-  exitGame() {
-    // Add confirmation dialog or exit logic
-    console.log("Thanks for playing!");
-  }
-
   transitionToScene(sceneName, callback) {
     if (this.isTransitioning) return;
 
@@ -522,7 +498,7 @@ export default class MainMenu extends Phaser.Scene {
     if (this.bgm?.isPlaying) {
       this.tweens.add({
         targets: this.bgm,
-        volume: 100,
+        volume: 0,
         duration: 500,
         onComplete: () => this.bgm.stop(),
       });

@@ -11,17 +11,15 @@ export default class NameEntry extends Phaser.Scene {
     this.inputFields = [];
     this.currentInput = "";
     this.isInputActive = false;
+    this.isMobile = false;
   }
 
   preload() {
     this.load.image("bg", "assets/images/background.png");
-
-    // Optional sound effects
     this.load.audio("type", "assets/sound/type.mp3");
     this.load.audio("confirm", "assets/sound/confirm.mp3");
     this.load.audio("navigate", "assets/sound/navigate.mp3");
 
-    // Error handling
     this.load.on("fileerror", (key) => {
       console.warn(`Failed to load asset: ${key}`);
     });
@@ -32,13 +30,14 @@ export default class NameEntry extends Phaser.Scene {
     const centerX = width * 0.5;
     const centerY = height * 0.5;
 
-    // Initialize player names array
-    this.initializePlayerNames();
+    // Detect if mobile device
+    this.detectMobile();
 
-    // Create animated background
+    // Initialize player names
+    this.initializePlayerNames();
     this.createAnimatedBackground();
 
-    // Background with overlay
+    // Background
     this.add
       .image(centerX, centerY, "bg")
       .setOrigin(0.5)
@@ -63,6 +62,18 @@ export default class NameEntry extends Phaser.Scene {
 
     // Focus first input
     this.selectInput(0);
+  }
+
+  detectMobile() {
+    // Check for mobile device
+    this.isMobile =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      ) ||
+      "ontouchstart" in window ||
+      navigator.maxTouchPoints > 0;
+
+    console.log("Device type:", this.isMobile ? "Mobile" : "Desktop");
   }
 
   initializePlayerNames() {
@@ -244,23 +255,30 @@ export default class NameEntry extends Phaser.Scene {
     container.add([bg, label, nameText, cursor]);
     container.setAlpha(0);
 
-    // Click interaction
+    // Input interaction - works for both mobile and desktop
     bg.on("pointerdown", () => {
       this.selectInput(index);
-    });
 
-    // Hover effects
-    bg.on("pointerover", () => {
-      if (index !== this.currentInputIndex) {
-        bg.setStrokeStyle(2, 0x8866ff, 0.8);
+      // For mobile, show native input dialog
+      if (this.isMobile) {
+        this.showMobileInput(index);
       }
     });
 
-    bg.on("pointerout", () => {
-      if (index !== this.currentInputIndex) {
-        bg.setStrokeStyle(2, 0x6644ff, 0.6);
-      }
-    });
+    // Hover effects for desktop
+    if (!this.isMobile) {
+      bg.on("pointerover", () => {
+        if (index !== this.currentInputIndex) {
+          bg.setStrokeStyle(2, 0x8866ff, 0.8);
+        }
+      });
+
+      bg.on("pointerout", () => {
+        if (index !== this.currentInputIndex) {
+          bg.setStrokeStyle(2, 0x6644ff, 0.6);
+        }
+      });
+    }
 
     // Store references
     return {
@@ -273,6 +291,24 @@ export default class NameEntry extends Phaser.Scene {
       index,
       isActive: false,
     };
+  }
+
+  showMobileInput(index) {
+    // Use native prompt for mobile input
+    const currentName = this.playerNames[index];
+    const newName = prompt(`Enter name for Player ${index + 1}:`, currentName);
+
+    if (newName !== null) {
+      // Update the name if user didn't cancel
+      const trimmedName = newName.trim();
+      this.playerNames[index] = trimmedName || `Player ${index + 1}`;
+
+      // Update display
+      const field = this.inputFields[index];
+      field.nameText.setText(this.playerNames[index]);
+
+      this.playTypeSound();
+    }
   }
 
   selectInput(index) {
@@ -293,10 +329,15 @@ export default class NameEntry extends Phaser.Scene {
 
     const newField = this.inputFields[index];
     newField.bg.setStrokeStyle(3, 0xffff44, 1);
-    newField.cursor.setVisible(true);
-    newField.cursorTween.resume();
+
+    // Only show cursor for desktop
+    if (!this.isMobile) {
+      newField.cursor.setVisible(true);
+      newField.cursorTween.resume();
+      this.isInputActive = true;
+    }
+
     newField.isActive = true;
-    this.isInputActive = true;
 
     this.updateCursorPosition();
     this.playNavigateSound();
@@ -310,39 +351,40 @@ export default class NameEntry extends Phaser.Scene {
 
   updateInputText() {
     const field = this.inputFields[this.currentInputIndex];
-    field.nameText.setText(
-      this.currentInput || `Player ${this.currentInputIndex + 1}`
-    );
-    this.playerNames[this.currentInputIndex] =
+    const displayText =
       this.currentInput || `Player ${this.currentInputIndex + 1}`;
+    field.nameText.setText(displayText);
+    this.playerNames[this.currentInputIndex] = displayText;
     this.updateCursorPosition();
   }
 
   setupInputSystem() {
-    // Handle text input
-    this.input.keyboard.on("keydown", (event) => {
-      if (!this.isInputActive || this.isTransitioning) return;
+    // Desktop keyboard input
+    if (!this.isMobile) {
+      this.input.keyboard.on("keydown", (event) => {
+        if (!this.isInputActive || this.isTransitioning) return;
 
-      const key = event.key;
+        const key = event.key;
 
-      if (key === "Backspace") {
-        this.currentInput = this.currentInput.slice(0, -1);
-        this.updateInputText();
-        this.playTypeSound();
-      } else if (key === "Enter") {
-        this.navigateToNextInput();
-      } else if (key === "Tab") {
-        event.preventDefault();
-        this.navigateToNextInput();
-      } else if (key.length === 1 && this.currentInput.length < 15) {
-        // Only allow printable characters and limit length
-        if (/^[a-zA-Z0-9\s\-_.]$/.test(key)) {
-          this.currentInput += key;
+        if (key === "Backspace") {
+          this.currentInput = this.currentInput.slice(0, -1);
           this.updateInputText();
           this.playTypeSound();
+        } else if (key === "Enter") {
+          this.navigateToNextInput();
+        } else if (key === "Tab") {
+          event.preventDefault();
+          this.navigateToNextInput();
+        } else if (key.length === 1 && this.currentInput.length < 15) {
+          // Only allow printable characters and limit length
+          if (/^[a-zA-Z0-9\s\-_.]$/.test(key)) {
+            this.currentInput += key;
+            this.updateInputText();
+            this.playTypeSound();
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   navigateToNextInput() {
@@ -406,19 +448,18 @@ export default class NameEntry extends Phaser.Scene {
   }
 
   createInstructions(centerX, height) {
+    const instructionText = this.isMobile
+      ? "Tap input fields to edit names • Default names will be used if empty"
+      : "Click fields to edit • Tab/Enter to move • Arrow keys to navigate • Default names used if empty";
+
     const instructions = this.add
-      .text(
-        centerX,
-        height - 100,
-        "Click on a field to edit • Tab or Enter to move to next • Default names will be used if empty",
-        {
-          fontFamily: "Arial",
-          fontSize: "14px",
-          color: "#888888",
-          align: "center",
-          wordWrap: { width: 600 },
-        }
-      )
+      .text(centerX, height - 100, instructionText, {
+        fontFamily: "Arial",
+        fontSize: "14px",
+        color: "#888888",
+        align: "center",
+        wordWrap: { width: 600 },
+      })
       .setOrigin(0.5)
       .setAlpha(0);
 
@@ -442,25 +483,32 @@ export default class NameEntry extends Phaser.Scene {
     const cursors = this.input.keyboard.createCursorKeys();
     const keys = this.input.keyboard.addKeys("ENTER,ESC,TAB");
 
-    // Navigation when not typing
-    cursors.up.on("down", () => {
-      if (!this.isInputActive) {
-        const newIndex = Math.max(0, this.currentInputIndex - 1);
-        this.selectInput(newIndex);
-      }
-    });
+    // Navigation when not typing (desktop only)
+    if (!this.isMobile) {
+      cursors.up.on("down", () => {
+        if (!this.isInputActive) {
+          const newIndex = Math.max(0, this.currentInputIndex - 1);
+          this.selectInput(newIndex);
+        }
+      });
 
-    cursors.down.on("down", () => {
-      if (!this.isInputActive) {
-        const newIndex = Math.min(
-          this.inputFields.length - 1,
-          this.currentInputIndex + 1
-        );
-        this.selectInput(newIndex);
-      }
-    });
+      cursors.down.on("down", () => {
+        if (!this.isInputActive) {
+          const newIndex = Math.min(
+            this.inputFields.length - 1,
+            this.currentInputIndex + 1
+          );
+          this.selectInput(newIndex);
+        }
+      });
+    }
 
     keys.ESC.on("down", () => this.goBack());
+    keys.ENTER.on("down", () => {
+      if (!this.isInputActive) {
+        this.continueToGame();
+      }
+    });
   }
 
   continueToGame() {
@@ -590,10 +638,6 @@ export default class NameEntry extends Phaser.Scene {
     if (this.sound.get("confirm")) {
       this.sound.play("confirm", { volume: 0.5 });
     }
-  }
-
-  cleanupInputs() {
-    // No longer needed since we're not using DOM elements
   }
 
   shutdown() {

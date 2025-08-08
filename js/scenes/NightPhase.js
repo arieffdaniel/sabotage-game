@@ -3,11 +3,11 @@ import GameManager from "../managers/GameManager.js";
 export default class NightPhase extends Phaser.Scene {
   constructor() {
     super("NightPhase");
-    this.currentRoleIndex = 0;
-    this.nightRoles = [];
+    this.currentPlayerIndex = 0;
+    this.allPlayers = []; // Now includes ALL players
     this.nightActions = [];
     this.buttons = [];
-    this.currentState = "starting"; // starting, pass_device, show_role, take_action, results
+    this.currentState = "starting";
   }
 
   preload() {
@@ -21,7 +21,7 @@ export default class NightPhase extends Phaser.Scene {
     }
 
     this.setupUI();
-    this.findNightRoles();
+    this.setupAllPlayers();
     this.startNightPhase();
   }
 
@@ -52,7 +52,7 @@ export default class NightPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Main text (larger, more prominent)
+    // Main text
     this.mainText = this.add
       .text(this.scale.width / 2, 300, "", {
         fontSize: "28px",
@@ -63,7 +63,7 @@ export default class NightPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Sub text (instructions)
+    // Sub text
     this.subText = this.add
       .text(this.scale.width / 2, 400, "", {
         fontSize: "22px",
@@ -74,7 +74,7 @@ export default class NightPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Single continue button
+    // Continue button
     this.continueBtn = this.add
       .text(this.scale.width / 2, this.scale.height - 120, "Continue", {
         fontSize: "26px",
@@ -96,45 +96,62 @@ export default class NightPhase extends Phaser.Scene {
     });
   }
 
-  findNightRoles() {
-    this.nightRoles = [];
+  setupAllPlayers() {
+    // FIXED: Include ALL alive players in night phase
+    this.allPlayers = [];
 
     GameManager.playerList.forEach((player, index) => {
       if (!player.isAlive) return;
 
+      // Create player entry for EVERYONE
+      const playerEntry = {
+        player: player,
+        playerIndex: index,
+        actualRole: player.role, // Keep track of actual role
+        hasNightAction: false,
+        actionDescription:
+          "You have no special action tonight. Sleep peacefully!",
+        actionEmoji: "😴",
+      };
+
+      // Check if this player has a night action
       if (player.role === "Saboteur") {
-        this.nightRoles.push({
-          player: player,
-          playerIndex: index,
-          role: "Saboteur",
-          emoji: "💀",
-          description: "Choose someone to eliminate",
-        });
-      } else if (player.role === "Medic") {
-        this.nightRoles.push({
-          player: player,
-          playerIndex: index,
-          role: "Medic",
-          emoji: "🛡️",
-          description: "Choose someone to protect (or skip)",
-        });
-      } else if (player.role === "Investigator") {
-        this.nightRoles.push({
-          player: player,
-          playerIndex: index,
-          role: "Investigator",
-          emoji: "🔍",
-          description: "Choose someone to investigate",
-        });
+        playerEntry.hasNightAction = true;
+        playerEntry.actionDescription = "Choose someone to eliminate";
+        playerEntry.actionEmoji = "💀";
+      } else if (player.role === "Medic (Biology Major)") {
+        playerEntry.hasNightAction = true;
+        playerEntry.actionDescription = "Choose someone to protect (or skip)";
+        playerEntry.actionEmoji = "🛡️";
+      } else if (player.role === "Investigator (Forensic Scientist)") {
+        playerEntry.hasNightAction = true;
+        playerEntry.actionDescription = "Choose someone to investigate";
+        playerEntry.actionEmoji = "🔍";
       }
+
+      this.allPlayers.push(playerEntry);
     });
+
+    // Shuffle the order so roles can't be deduced from turn order
+    this.shufflePlayerOrder();
+  }
+
+  shufflePlayerOrder() {
+    // Fisher-Yates shuffle to randomize player order
+    for (let i = this.allPlayers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.allPlayers[i], this.allPlayers[j]] = [
+        this.allPlayers[j],
+        this.allPlayers[i],
+      ];
+    }
   }
 
   startNightPhase() {
-    this.currentRoleIndex = 0;
+    this.currentPlayerIndex = 0;
     this.nightActions = [];
 
-    if (this.nightRoles.length === 0) {
+    if (this.allPlayers.length === 0) {
       this.skipToMorning();
       return;
     }
@@ -146,66 +163,84 @@ export default class NightPhase extends Phaser.Scene {
     this.currentState = "pass_device";
     this.clearButtons();
 
-    const currentRole = this.nightRoles[this.currentRoleIndex];
+    if (this.currentPlayerIndex >= this.allPlayers.length) {
+      this.resolveNight();
+      return;
+    }
 
-    // ✅ SIMPLE: Clear, direct instructions
+    const currentPlayer = this.allPlayers[this.currentPlayerIndex];
+
+    // Everyone sees the same generic message
     this.updateProgress();
     this.mainText.setText(
-      `📱 Pass the device to:\n\n${currentRole.player.name}`
+      `📱 Pass the device to:\n\n${currentPlayer.player.name}`
     );
     this.subText.setText(
-      `${currentRole.player.name}: Tap when you have the device\n\n🔒 Other players: Please look away now`
+      `${currentPlayer.player.name}: Tap when you have the device\n\n🔒 Other players: Please look away now`
     );
 
     this.continueBtn.setText("I Have The Device");
 
     this.continueBtn.removeAllListeners("pointerdown");
     this.continueBtn.once("pointerdown", () => {
-      this.showPlayerRole();
+      this.showPlayerNightInfo();
     });
   }
 
-  showPlayerRole() {
+  showPlayerNightInfo() {
     this.currentState = "show_role";
 
-    const currentRole = this.nightRoles[this.currentRoleIndex];
+    const currentPlayer = this.allPlayers[this.currentPlayerIndex];
 
-    // ✅ SIMPLE: Show role immediately, no extra steps
+    // Show the player their night status (whether they have an action or not)
     this.mainText.setText(
-      `${currentRole.emoji} You are the ${currentRole.role}!`
-    );
-    this.subText.setText(
-      `${currentRole.description}\n\nTap to see your options`
+      `${currentPlayer.actionEmoji} Night Phase\n\n${currentPlayer.actionDescription}`
     );
 
-    this.continueBtn.setText("Show My Options");
+    if (currentPlayer.hasNightAction) {
+      this.subText.setText("Tap to see your options");
+      this.continueBtn.setText("Show My Options");
 
-    this.continueBtn.removeAllListeners("pointerdown");
-    this.continueBtn.once("pointerdown", () => {
-      this.showActionOptions();
-    });
+      this.continueBtn.removeAllListeners("pointerdown");
+      this.continueBtn.once("pointerdown", () => {
+        this.showActionOptions();
+      });
+    } else {
+      // Player has no action - just continue to next player
+      this.subText.setText("Your turn is complete.\nTap to continue");
+      this.continueBtn.setText("Next Player");
+
+      this.continueBtn.removeAllListeners("pointerdown");
+      this.continueBtn.once("pointerdown", () => {
+        this.moveToNextPlayer();
+      });
+    }
   }
 
   showActionOptions() {
     this.currentState = "take_action";
 
-    const currentRole = this.nightRoles[this.currentRoleIndex];
+    const currentPlayer = this.allPlayers[this.currentPlayerIndex];
 
-    this.mainText.setText(`${currentRole.emoji} ${currentRole.description}`);
+    // Show specific action options only to players with night actions
+    this.mainText.setText(
+      `${currentPlayer.actionEmoji} ${currentPlayer.actionDescription}`
+    );
     this.subText.setText("Choose your target:");
 
     this.continueBtn.setVisible(false);
-    this.createTargetButtons(currentRole);
+    this.createTargetButtons(currentPlayer);
   }
 
-  createTargetButtons(roleInfo) {
+  createTargetButtons(playerInfo) {
     const targets = GameManager.playerList.filter((player, index) => {
       if (!player.isAlive) return false;
 
       // Saboteur and Investigator can't target themselves
       if (
-        (roleInfo.role === "Saboteur" || roleInfo.role === "Investigator") &&
-        index === roleInfo.playerIndex
+        (playerInfo.actualRole === "Saboteur" ||
+          playerInfo.actualRole === "Investigator (Forensic Scientist)") &&
+        index === playerInfo.playerIndex
       ) {
         return false;
       }
@@ -220,17 +255,22 @@ export default class NightPhase extends Phaser.Scene {
       const originalIndex = GameManager.playerList.indexOf(player);
 
       const btn = this.add
-        .text(this.scale.width / 2, yPos, `${roleInfo.emoji} ${player.name}`, {
-          fontSize: "24px",
-          fontFamily: "Poppins",
-          color: "#ffffff",
-          backgroundColor: "#444444",
-          padding: { x: 25, y: 12 },
-        })
+        .text(
+          this.scale.width / 2,
+          yPos,
+          `${playerInfo.actionEmoji} ${player.name}`,
+          {
+            fontSize: "24px",
+            fontFamily: "Poppins",
+            color: "#ffffff",
+            backgroundColor: "#444444",
+            padding: { x: 25, y: 12 },
+          }
+        )
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true });
 
-      // Simple hover effect
+      // Hover effects
       btn.on("pointerover", () => {
         btn.setStyle({ backgroundColor: "#666666" });
       });
@@ -240,7 +280,7 @@ export default class NightPhase extends Phaser.Scene {
       });
 
       btn.on("pointerdown", () => {
-        this.selectTarget(roleInfo, player, originalIndex);
+        this.selectTarget(playerInfo, player, originalIndex);
       });
 
       this.buttons.push(btn);
@@ -248,7 +288,7 @@ export default class NightPhase extends Phaser.Scene {
     });
 
     // Add skip option for Medic only
-    if (roleInfo.role === "Medic") {
+    if (playerInfo.actualRole === "Medic (Biology Major)") {
       const skipBtn = this.add
         .text(this.scale.width / 2, yPos + 20, "🚫 Don't Protect Anyone", {
           fontSize: "20px",
@@ -269,28 +309,28 @@ export default class NightPhase extends Phaser.Scene {
       });
 
       skipBtn.on("pointerdown", () => {
-        this.skipAction(roleInfo);
+        this.skipAction(playerInfo);
       });
 
       this.buttons.push(skipBtn);
     }
   }
 
-  selectTarget(roleInfo, targetPlayer, targetIndex) {
+  selectTarget(playerInfo, targetPlayer, targetIndex) {
     // Record action
     const action = {
-      role: roleInfo.role,
-      actor: roleInfo.player.name,
-      actorIndex: roleInfo.playerIndex,
+      role: playerInfo.actualRole,
+      actor: playerInfo.player.name,
+      actorIndex: playerInfo.playerIndex,
       target: targetPlayer.name,
       targetIndex: targetIndex,
     };
 
     this.nightActions.push(action);
 
-    // Show immediate feedback for Investigator
+    // Show immediate feedback for Investigator only
     let message = "";
-    if (roleInfo.role === "Investigator") {
+    if (playerInfo.actualRole === "Investigator (Forensic Scientist)") {
       const isSaboteur = targetPlayer.role === "Saboteur";
       message = `🔍 ${targetPlayer.name} is ${
         isSaboteur ? "SUSPICIOUS! 🚨" : "INNOCENT ✅"
@@ -302,11 +342,11 @@ export default class NightPhase extends Phaser.Scene {
     this.showActionComplete(message);
   }
 
-  skipAction(roleInfo) {
+  skipAction(playerInfo) {
     const action = {
-      role: roleInfo.role,
-      actor: roleInfo.player.name,
-      actorIndex: roleInfo.playerIndex,
+      role: playerInfo.actualRole,
+      actor: playerInfo.player.name,
+      actorIndex: playerInfo.playerIndex,
       skipped: true,
     };
 
@@ -332,12 +372,12 @@ export default class NightPhase extends Phaser.Scene {
   }
 
   moveToNextPlayer() {
-    this.currentRoleIndex++;
+    this.currentPlayerIndex++;
 
-    if (this.currentRoleIndex >= this.nightRoles.length) {
+    if (this.currentPlayerIndex >= this.allPlayers.length) {
       this.resolveNight();
     } else {
-      // ✅ SIMPLE: Just show "device passing" screen
+      // Show device passing screen
       this.showDevicePassing();
     }
   }
@@ -350,7 +390,6 @@ export default class NightPhase extends Phaser.Scene {
       "🔒 Everyone look away!\n\nNext player tap when ready"
     );
 
-    // ✅ FIX: Show button instead of auto-advance
     this.continueBtn.setText("Ready for Next Player");
     this.continueBtn.setVisible(true);
 
@@ -371,9 +410,9 @@ export default class NightPhase extends Phaser.Scene {
 
     let eliminated = null;
 
-    // Simple resolution logic
+    // Process night actions
     const protectAction = this.nightActions.find(
-      (a) => a.role === "Medic" && !a.skipped
+      (a) => a.role === "Medic (Biology Major)" && !a.skipped
     );
     if (protectAction) {
       GameManager.playerList[protectAction.targetIndex].isProtected = true;
@@ -438,16 +477,16 @@ export default class NightPhase extends Phaser.Scene {
   }
 
   updateProgress() {
-    if (this.nightRoles.length > 0) {
+    if (this.allPlayers.length > 0) {
       this.progressText.setText(
-        `Player ${this.currentRoleIndex + 1} of ${this.nightRoles.length}`
+        `Player ${this.currentPlayerIndex + 1} of ${this.allPlayers.length}`
       );
     }
   }
 
   skipToMorning() {
     this.mainText.setText("🌅 A quiet night...");
-    this.subText.setText("No special roles are active");
+    this.subText.setText("No players are active");
 
     this.time.delayedCall(2000, () => {
       GameManager.roundNumber++;
@@ -465,33 +504,3 @@ export default class NightPhase extends Phaser.Scene {
     super.destroy();
   }
 }
-
-/*
-✅ SIMPLIFIED FLOW:
-
-1. "Pass device to [Name]" → Clear instructions
-2. "[Name] tap when you have device" → One simple action
-3. "You are [Role]!" → Immediate reveal
-4. "Show my options" → One button to continue  
-5. Target selection → Simple buttons
-6. "Action complete" → Clear confirmation
-7. "Next player" → Move on
-8. Auto 3-second transition → No confusion
-9. Repeat for next player
-
-🚫 REMOVED CONFUSING ELEMENTS:
-- Multiple privacy screens
-- Complex state transitions  
-- Unclear "ready" states
-- Too many confirmation steps
-- Confusing color changes
-- Unclear instructions
-
-✅ CLEAR BENEFITS:
-- One button per screen (except target selection)
-- Clear progress indicator
-- Simple language
-- Obvious next steps
-- Auto-transitions where helpful
-- Consistent flow for all players
-*/

@@ -7,9 +7,10 @@ export default class DayPhase extends Phaser.Scene {
     this.votes = [];
     this.currentVoter = 0;
     this.buttons = [];
-    this.voteHistory = []; // Track who voted for whom
+    this.voteHistory = []; // Track who voted for whom (hidden until results)
     this.isVotingLocked = false;
     this.phaseState = "voting"; // voting, summary, eliminating
+    this.privateCurtain = null;
   }
 
   preload() {
@@ -65,19 +66,69 @@ export default class DayPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // 🗳️ Vote tracking display
-    this.voteTrackingText = this.add
-      .text(50, 200, "", {
-        fontSize: "20px",
-        fontFamily: "Poppins",
-        color: "#aaaaaa",
-        wordWrap: { width: 300 },
-      })
-      .setVisible(false);
+    // 🎭 Privacy curtain for secret voting
+    this.createPrivacyCurtain();
 
     // Initialize voting data
     this.initializeVoting();
     this.startVotingPhase();
+  }
+
+  createPrivacyCurtain() {
+    // Create a full-screen overlay for privacy
+    this.privateCurtain = this.add.container(0, 0);
+
+    // Black background
+    const curtainBg = this.add.rectangle(
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
+      0x000000,
+      0.95
+    );
+
+    // Privacy message
+    const privacyText = this.add
+      .text(
+        this.scale.width / 2,
+        this.scale.height / 2 - 100,
+        "🔒 PRIVATE VOTING\n\nOthers: Please look away!\n\nVoter: Make your selection",
+        {
+          fontSize: "32px",
+          fontFamily: "Poppins",
+          color: "#ffffff",
+          align: "center",
+        }
+      )
+      .setOrigin(0.5);
+
+    // Warning icons
+    const leftEye = this.add
+      .text(this.scale.width / 4, this.scale.height / 2 + 100, "👁️", {
+        fontSize: "64px",
+      })
+      .setOrigin(0.5);
+
+    const rightEye = this.add
+      .text((3 * this.scale.width) / 4, this.scale.height / 2 + 100, "👁️", {
+        fontSize: "64px",
+      })
+      .setOrigin(0.5);
+
+    // Add pulsing animation to eyes
+    this.tweens.add({
+      targets: [leftEye, rightEye],
+      alpha: 0.3,
+      scale: 0.8,
+      duration: 1000,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
+    this.privateCurtain.add([curtainBg, privacyText, leftEye, rightEye]);
+    this.privateCurtain.setVisible(false);
   }
 
   initializeVoting() {
@@ -112,7 +163,75 @@ export default class DayPhase extends Phaser.Scene {
   startVotingPhase() {
     this.phaseState = "voting";
     this.updateProgress();
-    this.askNextVoter();
+    this.showPassDevicePrompt();
+  }
+
+  showPassDevicePrompt() {
+    if (this.currentVoter >= this.alivePlayers.length) {
+      this.resolveVote();
+      return;
+    }
+
+    this.isVotingLocked = false;
+    this.privateCurtain.setVisible(false);
+
+    const voter = this.alivePlayers[this.currentVoter];
+
+    this.instructionText.setText(
+      `📱 Pass the device to:\n\n${voter.name}\n\n🔒 Tap when you have the device and are ready to vote privately`
+    );
+
+    this.cleanupButtons();
+
+    // Create "I'm Ready" button
+    const readyBtn = this.add
+      .text(this.scale.width / 2, 400, "🗳️ I'm Ready to Vote", {
+        fontSize: "28px",
+        fontFamily: "Poppins",
+        color: "#ffffff",
+        backgroundColor: "#4444ff",
+        padding: { x: 30, y: 15 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    // Button hover effects
+    readyBtn.on("pointerover", () => {
+      readyBtn.setStyle({ backgroundColor: "#6666ff" });
+    });
+
+    readyBtn.on("pointerout", () => {
+      readyBtn.setStyle({ backgroundColor: "#4444ff" });
+    });
+
+    readyBtn.on("pointerdown", () => {
+      this.showPrivateVoting(voter);
+    });
+
+    this.buttons.push(readyBtn);
+  }
+
+  showPrivateVoting(voter) {
+    // Show privacy curtain
+    this.privateCurtain.setVisible(true);
+    this.cleanupButtons();
+
+    // Wait a moment then show voting options
+    this.time.delayedCall(1500, () => {
+      this.showVotingOptions(voter);
+    });
+  }
+
+  showVotingOptions(voter) {
+    this.privateCurtain.setVisible(false);
+    this.isVotingLocked = false;
+
+    this.instructionText.setText(
+      `🗳️ ${voter.name}, choose someone to eliminate:\n\n` +
+        `(Your vote is secret until results are revealed)`
+    );
+
+    this.showVoteButtons(voter);
   }
 
   updateProgress() {
@@ -125,36 +244,18 @@ export default class DayPhase extends Phaser.Scene {
     }
   }
 
-  askNextVoter() {
-    if (this.currentVoter >= this.alivePlayers.length) {
-      this.resolveVote();
-      return;
-    }
-
-    this.isVotingLocked = false;
-    const voter = this.alivePlayers[this.currentVoter];
-
-    this.instructionText.setText(
-      `🗳️ ${voter.name}, choose someone to eliminate:\n\n` +
-        `(${this.currentVoter + 1}/${this.alivePlayers.length} votes cast)`
-    );
-
-    this.showVoteButtons(voter);
-    this.updateVoteTracking();
-  }
-
   showVoteButtons(voter) {
     this.cleanupButtons();
 
-    let yPos = 300;
-    const buttonSpacing = 60;
+    let yPos = 350;
+    const buttonSpacing = 55;
 
     // Create voting buttons for all alive players except the voter
     this.alivePlayers.forEach((candidate) => {
       if (candidate.originalIndex === voter.originalIndex) return; // Skip self-vote
 
       const btn = this.add
-        .text(this.scale.width / 2, yPos, `🔘 ${candidate.name}`, {
+        .text(this.scale.width / 2, yPos, `🗳️ ${candidate.name}`, {
           fontSize: "24px",
           fontFamily: "Poppins",
           color: "#ffffff",
@@ -180,7 +281,6 @@ export default class DayPhase extends Phaser.Scene {
       // Vote handling
       btn.on("pointerdown", () => {
         if (this.isVotingLocked) return;
-
         this.castVote(voter, candidate, btn);
       });
 
@@ -226,7 +326,7 @@ export default class DayPhase extends Phaser.Scene {
     // Visual feedback
     button.setStyle({ backgroundColor: "#00aa00", color: "#ffffff" });
 
-    // Record the vote
+    // Record the vote (secretly)
     if (candidate) {
       this.votes[candidate.originalIndex]++;
       this.voteHistory.push({
@@ -247,30 +347,69 @@ export default class DayPhase extends Phaser.Scene {
     //   this.sound.play("vote_sound", { volume: 0.3 });
     // }
 
-    // Move to next voter after brief delay
-    this.time.delayedCall(800, () => {
-      this.currentVoter++;
-      this.askNextVoter();
-    });
+    // Show confirmation and privacy screen
+    this.showVoteConfirmation(voter);
   }
 
-  updateVoteTracking() {
-    if (this.voteHistory.length === 0) {
-      this.voteTrackingText.setVisible(false);
-      return;
-    }
+  showVoteConfirmation(voter) {
+    this.cleanupButtons();
 
-    let trackingText = "📋 Votes Cast:\n";
-    this.voteHistory.forEach((vote, index) => {
-      trackingText += `${index + 1}. ${vote.voter} → ${vote.target}\n`;
+    this.instructionText.setText(
+      `✅ Vote recorded!\n\n🔒 Your vote is secret until all votes are cast.`
+    );
+
+    // Create continue button
+    const continueBtn = this.add
+      .text(this.scale.width / 2, 450, "Continue to Next Voter", {
+        fontSize: "24px",
+        fontFamily: "Poppins",
+        color: "#ffffff",
+        backgroundColor: "#00aa44",
+        padding: { x: 25, y: 12 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    continueBtn.on("pointerover", () => {
+      continueBtn.setStyle({ backgroundColor: "#00cc55" });
     });
 
-    this.voteTrackingText.setText(trackingText).setVisible(true);
+    continueBtn.on("pointerout", () => {
+      continueBtn.setStyle({ backgroundColor: "#00aa44" });
+    });
+
+    continueBtn.on("pointerdown", () => {
+      this.moveToNextVoter();
+    });
+
+    this.buttons.push(continueBtn);
+  }
+
+  moveToNextVoter() {
+    this.currentVoter++;
+
+    if (this.currentVoter >= this.alivePlayers.length) {
+      this.resolveVote();
+    } else {
+      // Show device passing screen
+      this.showDevicePassing();
+    }
+  }
+
+  showDevicePassing() {
+    this.cleanupButtons();
+    this.privateCurtain.setVisible(true);
+
+    // Brief transition message
+    this.time.delayedCall(2000, () => {
+      this.showPassDevicePrompt();
+    });
   }
 
   resolveVote() {
     this.phaseState = "summary";
     this.cleanupButtons();
+    this.privateCurtain.setVisible(false);
     this.updateProgress();
 
     // Find players with maximum votes
@@ -290,7 +429,7 @@ export default class DayPhase extends Phaser.Scene {
   }
 
   handleEliminationResult(eliminatedCandidates, maxVotes) {
-    let summary = "📋 VOTING RESULTS\n\n";
+    let summary = "📊 VOTING RESULTS REVEALED!\n\n";
 
     // Show vote counts for all players who received votes
     const playersWithVotes = [];
@@ -333,7 +472,6 @@ export default class DayPhase extends Phaser.Scene {
   displayVoteSummary(summary) {
     // Clear previous content
     this.instructionText.setText("");
-    this.voteTrackingText.setVisible(false);
 
     // Create summary display
     if (this.voteSummaryText) this.voteSummaryText.destroy();
@@ -347,7 +485,7 @@ export default class DayPhase extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Show detailed vote history
+    // Show detailed vote history (now revealed)
     this.showDetailedVoteHistory();
 
     // Create continue button
@@ -357,7 +495,7 @@ export default class DayPhase extends Phaser.Scene {
   showDetailedVoteHistory() {
     if (this.voteHistory.length === 0) return;
 
-    let historyText = "\n📝 Detailed Vote History:\n";
+    let historyText = "\n📝 How Everyone Voted:\n";
     this.voteHistory.forEach((vote, index) => {
       historyText += `${index + 1}. ${vote.voter} voted for ${vote.target}\n`;
     });
